@@ -1,6 +1,7 @@
 import QRGenerator from "@/components/QRGenerator";
 import QRHistory from "@/components/QRHistory";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
+import { Link } from "wouter";
 
 export default function Home() {
   return (
@@ -111,9 +112,23 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="mt-12 pb-8 text-center">
+      <footer className="mt-12 pb-8 text-center space-y-3">
+        <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
+          <Link href="/qr-code-pix" className="text-muted-foreground hover:text-foreground transition-colors underline">
+            QR Code PIX
+          </Link>
+          <Link href="/qr-code-whatsapp" className="text-muted-foreground hover:text-foreground transition-colors underline">
+            QR Code WhatsApp
+          </Link>
+          <Link href="/qr-code-wifi" className="text-muted-foreground hover:text-foreground transition-colors underline">
+            QR Code WiFi
+          </Link>
+          <a href="/sitemap.xml" className="text-muted-foreground hover:text-foreground transition-colors underline opacity-50">
+            Sitemap
+          </a>
+        </div>
         <p className="text-xs text-muted-foreground">
-          © 2026 QRFácil · Gerador de QR Code grátis · <a href="/sitemap.xml" className="underline opacity-50">Sitemap</a>
+          © 2026 QRFácil · Gerador de QR Code grátis
         </p>
       </footer>
     </div>
