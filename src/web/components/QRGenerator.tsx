@@ -1,0 +1,359 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+import QRCode from "qrcode";
+import { useHistory } from "@/hooks/useHistory";
+import { useCustomerId } from "@/hooks/useCustomerId";
+import PixModal from "@/components/PixModal";
+
+export type QRType = "url" | "whatsapp" | "pix" | "phone" | "wifi";
+
+const TABS = [
+  { id: "url" as QRType,       label: "URL",       icon: "🔗" },
+  { id: "whatsapp" as QRType,  label: "WhatsApp",  icon: "💬" },
+  { id: "pix" as QRType,       label: "PIX",       icon: "⚡" },
+  { id: "phone" as QRType,     label: "Telefone",  icon: "📞" },
+  { id: "wifi" as QRType,      label: "WiFi",       icon: "📶" },
+];
+
+function buildQRData(type: QRType, fields: Record<string, string>): string {
+  switch (type) {
+    case "url":      return fields.url || "";
+    case "whatsapp": {
+      const num = fields.phone?.replace(/\D/g, "") || "";
+      const msg = encodeURIComponent(fields.message || "");
+      return `https://wa.me/${num}${msg ? `?text=${msg}` : ""}`;
+    }
+    case "pix":   return fields.pixKey || "";
+    case "phone": return `tel:${fields.phone || ""}`;
+    case "wifi":  return `WIFI:T:${fields.security || "WPA"};S:${fields.ssid || ""};P:${fields.password || ""};;`;
+    default:      return "";
+  }
+}
+
+// States: idle → previewing (blurred, locked) → paying → unlocked
+type Stage = "idle" | "previewing" | "paying" | "unlocked";
+
+export default function QRGenerator() {
+  const [activeTab, setActiveTab] = useState<QRType>("url");
+  const [fields, setFields]       = useState<Record<string, string>>({});
+  const [fgColor, setFgColor]     = useState("#7C3AED");
+  const [bgColor, setBgColor]     = useState("#0a0a0f");
+  const QR_SIZE = 256;
+
+  const [stage, setStage]             = useState<Stage>("idle");
+  const [isGenerating, setGenerating] = useState(false);
+  const [payLoading, setPayLoading]   = useState(false);
+  const [showPix, setShowPix]         = useState(false);
+
+  const canvasRef   = useRef<HTMLCanvasElement>(null);
+  const { addToHistory } = useHistory();
+  const customerId  = useCustomerId();
+
+  const setField = (k: string, v: string) => {
+    setFields(p => ({ ...p, [k]: v }));
+    // reset to idle if user edits after generating
+    if (stage === "unlocked") setStage("idle");
+  };
+
+  const getLabel = useCallback((): string => {
+    switch (activeTab) {
+      case "url":       return fields.url || "URL";
+      case "whatsapp":  return `WhatsApp +${fields.phone || ""}`;
+      case "pix":       return `PIX: ${fields.pixKey || ""}`;
+      case "phone":     return `Tel: ${fields.phone || ""}`;
+      case "wifi":      return `WiFi: ${fields.ssid || ""}`;
+      default:          return "QR Code";
+    }
+  }, [activeTab, fields]);
+
+  // Paint QR onto canvas
+  const paintQR = useCallback(async () => {
+    const data = buildQRData(activeTab, fields);
+    if (!data || !canvasRef.current) return false;
+    await QRCode.toCanvas(canvasRef.current, data, {
+      width: QR_SIZE,
+      margin: 2,
+      color: { dark: fgColor, light: bgColor },
+      errorCorrectionLevel: "H",
+    });
+    return true;
+  }, [activeTab, fields, fgColor, bgColor]);
+
+  // Step 1: generate preview (blurred)
+  const handleGenerate = async () => {
+    const data = buildQRData(activeTab, fields);
+    if (!data) return;
+    setGenerating(true);
+    try {
+      const ok = await paintQR();
+      if (ok) setStage("previewing");
+    } catch (e) { console.error(e); }
+    finally { setGenerating(false); }
+  };
+
+  // Step 2: pay R$2
+  const handlePay = () => {
+    setShowPix(true);
+  };
+
+  const handlePixPaid = async () => {
+    setShowPix(false);
+    // Regera o QR e desbloqueia
+    await paintQR();
+    setStage("unlocked");
+    if (canvasRef.current) {
+      const dataUrl = canvasRef.current.toDataURL("image/png");
+      addToHistory({ type: activeTab, label: getLabel(), dataUrl, fgColor, bgColor });
+    }
+  };
+
+  const downloadPNG = () => {
+    if (!canvasRef.current || stage !== "unlocked") return;
+    const link = document.createElement("a");
+    link.download = `qrfacil-${activeTab}-${Date.now()}.png`;
+    link.href = canvasRef.current.toDataURL("image/png");
+    link.click();
+  };
+
+
+
+  // Reset on tab change
+  useEffect(() => {
+    setFields({});
+    setStage("idle");
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext("2d");
+      ctx?.clearRect(0, 0, QR_SIZE, QR_SIZE);
+    }
+  }, [activeTab]);
+
+  const hasData   = buildQRData(activeTab, fields).length > 0;
+  const isPreviewing = stage === "previewing";
+  const isUnlocked   = stage === "unlocked";
+
+  const inputSt = { background: "var(--input)", border: "1px solid var(--border)", color: "var(--foreground)" };
+  const inputCl = "w-full px-4 py-3 rounded-xl text-sm font-medium outline-none border transition-all duration-200 placeholder:text-muted-foreground";
+
+  const renderFields = () => {
+    switch (activeTab) {
+      case "url":
+        return <>
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Endereço URL</label>
+          <input style={inputSt} className={inputCl} type="url" placeholder="https://seusite.com.br"
+            value={fields.url||""} onChange={e=>setField("url",e.target.value)} />
+        </>;
+      case "whatsapp":
+        return <>
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Número (com DDD + DDI)</label>
+          <input style={inputSt} className={inputCl} type="tel" placeholder="+55 11 99999-9999"
+            value={fields.phone||""} onChange={e=>setField("phone",e.target.value)} />
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mt-2">Mensagem (opcional)</label>
+          <textarea style={{...inputSt,resize:"none"}} className={`${inputCl} h-16`}
+            placeholder="Olá! Vi seu QR Code..." value={fields.message||""} onChange={e=>setField("message",e.target.value)} />
+        </>;
+      case "pix":
+        return <>
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Chave PIX</label>
+          <input style={inputSt} className={inputCl} placeholder="CPF, telefone, email ou chave aleatória"
+            value={fields.pixKey||""} onChange={e=>setField("pixKey",e.target.value)} />
+        </>;
+      case "phone":
+        return <>
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Número de Telefone</label>
+          <input style={inputSt} className={inputCl} type="tel" placeholder="+55 11 99999-9999"
+            value={fields.phone||""} onChange={e=>setField("phone",e.target.value)} />
+        </>;
+      case "wifi":
+        return <>
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Nome da Rede (SSID)</label>
+          <input style={inputSt} className={inputCl} placeholder="MinhaRedeCasa"
+            value={fields.ssid||""} onChange={e=>setField("ssid",e.target.value)} />
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mt-2">Senha</label>
+          <input style={inputSt} className={inputCl} type="password" placeholder="Senha do WiFi"
+            value={fields.password||""} onChange={e=>setField("password",e.target.value)} />
+          <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mt-2">Segurança</label>
+          <select style={inputSt} className={inputCl} value={fields.security||"WPA"} onChange={e=>setField("security",e.target.value)}>
+            <option value="WPA">WPA/WPA2</option>
+            <option value="WEP">WEP</option>
+            <option value="nopass">Sem senha</option>
+          </select>
+        </>;
+    }
+  };
+
+  return (
+    <>
+      {showPix && (
+        <PixModal
+          customerId={customerId}
+          onPaid={handlePixPaid}
+          onClose={() => setShowPix(false)}
+        />
+      )}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* LEFT — form */}
+      <div className="glass-card rounded-2xl p-6 space-y-5">
+        {/* Tabs */}
+        <div className="flex gap-1 p-1 rounded-xl" style={{background:"var(--secondary)"}}>
+          {TABS.map(tab => (
+            <button key={tab.id} onClick={()=>setActiveTab(tab.id)}
+              className="flex-1 flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg text-xs font-semibold transition-all duration-200"
+              style={{
+                background: activeTab===tab.id ? "var(--primary)" : "transparent",
+                color:      activeTab===tab.id ? "var(--primary-foreground)" : "var(--muted-foreground)",
+                boxShadow:  activeTab===tab.id ? "0 2px 8px var(--primary)" : "none",
+              }}>
+              <span className="text-base">{tab.icon}</span>
+              <span className="hidden sm:block">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Fields */}
+        <div className="flex flex-col gap-2">{renderFields()}</div>
+
+        {/* Color pickers */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Personalizar Cores</p>
+          <div className="flex gap-4 mb-3">
+            <label className="flex items-center gap-3 cursor-pointer flex-1">
+              <input type="color" value={fgColor} onChange={e=>{setFgColor(e.target.value);if(stage!=="idle")setStage("idle");}} className="w-10 h-10 cursor-pointer" />
+              <div><p className="text-sm font-semibold">QR Code</p><p className="text-xs text-muted-foreground">{fgColor}</p></div>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer flex-1">
+              <input type="color" value={bgColor} onChange={e=>{setBgColor(e.target.value);if(stage!=="idle")setStage("idle");}} className="w-10 h-10 cursor-pointer" />
+              <div><p className="text-sm font-semibold">Fundo</p><p className="text-xs text-muted-foreground">{bgColor}</p></div>
+            </label>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {[
+              {fg:"#7C3AED",bg:"#0a0a0f"},{fg:"#06B6D4",bg:"#0a0a0f"},
+              {fg:"#10B981",bg:"#0a0a0f"},{fg:"#F59E0B",bg:"#0a0a0f"},
+              {fg:"#000000",bg:"#FFFFFF"},{fg:"#FFFFFF",bg:"#1e1b4b"},
+            ].map((p,i)=>(
+              <button key={i} onClick={()=>{setFgColor(p.fg);setBgColor(p.bg);if(stage!=="idle")setStage("idle");}}
+                className="w-7 h-7 rounded-full border-2 transition-transform hover:scale-110"
+                style={{background:`linear-gradient(135deg,${p.fg} 50%,${p.bg} 50%)`,borderColor:fgColor===p.fg&&bgColor===p.bg?"var(--primary)":"var(--border)"}}/>
+            ))}
+          </div>
+        </div>
+
+        {/* Generate button */}
+        <button onClick={handleGenerate} disabled={!hasData||isGenerating||isUnlocked}
+          className="w-full py-4 rounded-xl font-bold text-base tracking-wide transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: hasData&&!isUnlocked ? "var(--primary)" : "var(--muted)",
+            color:       hasData&&!isUnlocked ? "var(--primary-foreground)" : "var(--muted-foreground)",
+            boxShadow:   hasData&&!isUnlocked ? "var(--qr-glow)" : "none",
+          }}>
+          {isGenerating ? "Gerando prévia..." : isUnlocked ? "✅ QR Liberado!" : "✨ Gerar QR Code"}
+        </button>
+      </div>
+
+      {/* RIGHT — preview + paywall overlay */}
+      <div className="glass-card rounded-2xl p-6 flex flex-col items-center gap-6">
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground self-start">Prévia</p>
+
+        {/* QR area */}
+        <div className="relative flex items-center justify-center" style={{width: QR_SIZE+32, height: QR_SIZE+32}}>
+          {/* Canvas — always rendered, shown blurred or clear */}
+          <div
+            className="relative rounded-2xl p-4 transition-all duration-500"
+            style={{
+              background: bgColor,
+              boxShadow: isUnlocked ? "var(--qr-glow)" : "0 0 0 1px var(--border)",
+            }}
+          >
+            {/* Placeholder shown when idle */}
+            {stage === "idle" && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl z-10"
+                style={{background:"var(--card)"}}>
+                <div className="text-5xl opacity-20">⬛</div>
+                <p className="text-xs text-muted-foreground text-center px-4">
+                  Preencha e clique em<br/><strong>Gerar QR Code</strong>
+                </p>
+              </div>
+            )}
+            {/* Canvas always in DOM */}
+            <canvas
+              ref={canvasRef}
+              width={QR_SIZE}
+              height={QR_SIZE}
+              style={{
+                borderRadius: "8px",
+                display: "block",
+                filter: isPreviewing ? "blur(8px) brightness(0.6)" : "none",
+                transition: "filter 0.4s ease",
+                userSelect: "none",
+                pointerEvents: isPreviewing ? "none" : "auto",
+                opacity: stage === "idle" ? 0 : 1,
+              }}
+            />
+          </div>
+
+          {/* PAYWALL OVERLAY — shown when previewing */}
+          {isPreviewing && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl"
+              style={{backdropFilter:"blur(2px)"}}>
+              <div className="flex flex-col items-center gap-4 px-4 text-center">
+                {/* lock icon */}
+                <div
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl"
+                  style={{background:"var(--primary)",boxShadow:"0 0 30px var(--primary)"}}>
+                  🔒
+                </div>
+
+                <div>
+                  <p className="font-black text-lg leading-tight" style={{fontFamily:"'Space Grotesk',sans-serif"}}>
+                    QR gerado!
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Pague R$2 para desbloquear<br/>e baixar em PNG
+                  </p>
+                </div>
+
+                {/* Price badge */}
+                <div
+                  className="px-4 py-2 rounded-xl flex items-baseline gap-1"
+                  style={{background:"var(--secondary)",border:"1px solid var(--border)"}}>
+                  <span className="text-xs text-muted-foreground font-medium">R$</span>
+                  <span className="text-3xl font-black" style={{fontFamily:"'Space Grotesk',sans-serif",color:"var(--primary)"}}>2</span>
+                  <span className="text-xs text-muted-foreground">,00</span>
+                </div>
+
+                <button
+                  onClick={handlePay}
+                  disabled={payLoading}
+                  className="w-full py-3 px-6 rounded-xl font-bold text-sm tracking-wide transition-all duration-200 hover:opacity-90 active:scale-95 disabled:opacity-60"
+                  style={{
+                    background:"var(--primary)",
+                    color:"var(--primary-foreground)",
+                    boxShadow:"0 0 20px var(--primary)",
+                    minWidth:"180px",
+                  }}>
+                  {payLoading ? "Abrindo checkout..." : "🔓 Pagar R$2 e baixar"}
+                </button>
+
+                <p className="text-xs text-muted-foreground" style={{fontSize:"10px"}}>
+                  Mercado Pago · Cartão, PIX ou boleto · Seguro
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Download button — only active when unlocked */}
+        <button
+          onClick={downloadPNG}
+          disabled={!isUnlocked}
+          className="w-full py-3 rounded-xl font-semibold text-sm tracking-wide transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+          style={{
+            background: isUnlocked ? "var(--accent)" : "var(--muted)",
+            color:       isUnlocked ? "var(--accent-foreground)" : "var(--muted-foreground)",
+          }}>
+          ⬇️ {isUnlocked ? "Baixar PNG" : "Disponível após pagamento"}
+        </button>
+      </div>
+    </div>
+    </>
+  );
+}
