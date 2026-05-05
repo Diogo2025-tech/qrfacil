@@ -11,7 +11,7 @@ const TABS = [
   { id: "whatsapp" as QRType,  label: "WhatsApp",  icon: "whatsapp" },
   { id: "pix" as QRType,       label: "PIX",       icon: "pix" },
   { id: "phone" as QRType,     label: "Telefone",  icon: "📞" },
-  { id: "wifi" as QRType,      label: "WiFi",       icon: "📶" },
+  { id: "wifi" as QRType,      label: "WiFi",       icon: "wifi" },
 ];
 
 function buildQRData(type: QRType, fields: Record<string, string>): string {
@@ -209,6 +209,10 @@ export default function QRGenerator() {
               ) : tab.icon === "pix" ? (
                 <svg viewBox="0 0 512 512" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
                   <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C357.9 387.9 380.4 396.1 403.3 396.1C406 396.1 408.7 396 411.3 395.8L336.5 470.6C319.5 487.6 294.9 496 270.3 496C245.7 496 221 487.6 204.1 470.6L128.7 395.2C133.1 395.7 137.5 396.1 142 396.1C164.9 396.1 187.4 387.9 205.8 369.5L242.4 292.5zM411.3 116.2C408.7 116 406 115.9 403.3 115.9C380.4 115.9 357.9 124.1 339.5 142.5L262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L205.8 142.5C187.4 124.1 164.9 115.9 142 115.9C137.5 115.9 133.1 116.3 128.7 116.8L204.1 41.37C221 24.35 245.7 16 270.3 16C294.9 16 319.5 24.35 336.5 41.37L411.3 116.2zM100.8 144.5C118.3 144.5 135 151.2 147.4 163.6L184 200.2C192.3 208.5 192.3 221.5 184 229.8L147.4 266.4C135 278.8 118.3 285.5 100.8 285.5H16V144.5H100.8zM395.2 144.5H480V285.5H395.2C377.7 285.5 361 278.8 348.6 266.4L312 229.8C303.7 221.5 303.7 208.5 312 200.2L348.6 163.6C361 151.2 377.7 144.5 395.2 144.5z"/>
+                </svg>
+              ) : tab.icon === "wifi" ? (
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1.5 8.5a13 13 0 0121 0M5 12a9 9 0 0114 0M8.5 15.5a5 5 0 017 0M12 19h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                 </svg>
               ) : (
                 <span className="text-base">{tab.icon}</span>
