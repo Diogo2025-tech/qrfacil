@@ -8,7 +8,7 @@ app.get('/ping', (c) => c.json({ message: `Pong!` }));
 
 const MP_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
-// Cria pagamento PIX R$2 e retorna QR code
+// Cria pagamento PIX R$2
 app.post('/qr/pay', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const customerId = body.customerId || 'anon_' + Date.now();
@@ -32,15 +32,11 @@ app.post('/qr/pay', async (c) => {
     });
 
     const data: any = await res.json();
-
-    if (!data.id) {
-      console.error('MP PIX error:', JSON.stringify(data));
-      return c.json({ error: 'mp_error' }, 500);
-    }
+    if (!data.id) return c.json({ error: 'mp_error' }, 500);
 
     const txData = data.point_of_interaction?.transaction_data;
     return c.json({
-      paymentId: data.id,
+      paymentId: String(data.id),
       qrCode:       txData?.qr_code,
       qrCodeBase64: txData?.qr_code_base64,
       status:       data.status,
@@ -51,17 +47,24 @@ app.post('/qr/pay', async (c) => {
   }
 });
 
-// Verifica status do pagamento
+// Verifica status — consultando direto na API do MP (sempre fresco)
 app.get('/qr/status/:paymentId', async (c) => {
   const { paymentId } = c.req.param();
   try {
     const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      headers: { Authorization: `Bearer ${MP_TOKEN}` },
+      headers: {
+        Authorization: `Bearer ${MP_TOKEN}`,
+        'Cache-Control': 'no-cache',
+      },
     });
     const data: any = await res.json();
-    return c.json({ status: data.status, detail: data.status_detail });
+    return c.json({
+      status: data.status,          // approved | pending | rejected
+      detail: data.status_detail,
+      paid: data.status === 'approved',
+    });
   } catch {
-    return c.json({ status: 'unknown' });
+    return c.json({ status: 'unknown', paid: false });
   }
 });
 
