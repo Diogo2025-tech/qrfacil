@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import QRCode from "qrcode";
 
 interface PixModalProps {
   customerId: string;
@@ -40,8 +41,18 @@ export default function PixModal({ customerId, onPaid, onClose }: PixModalProps)
       if (!data.paymentId) { setStep("error"); return; }
 
       setPaymentId(data.paymentId);
-      setQrCode(data.qrCode || "");
-      setQrImg(data.qrCodeBase64 ? `data:image/png;base64,${data.qrCodeBase64}` : "");
+      const pixCode = data.qrCode || "";
+      setQrCode(pixCode);
+
+      // Usa base64 do MP ou gera localmente como fallback
+      if (data.qrCodeBase64) {
+        setQrImg(`data:image/png;base64,${data.qrCodeBase64}`);
+      } else if (pixCode) {
+        try {
+          const localImg = await QRCode.toDataURL(pixCode, { width: 256, margin: 2 });
+          setQrImg(localImg);
+        } catch {}
+      }
       setStep("waiting");
 
       // Polling a cada 3s
